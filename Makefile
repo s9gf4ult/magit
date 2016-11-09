@@ -1,5 +1,7 @@
-include default.mk
 -include config.mk
+include default.mk
+
+######################################################################
 
 .PHONY: lisp \
 	install install-lisp install-docs install-info \
@@ -23,6 +25,9 @@ help:
 	$(info make lisp             - compile elisp)
 	$(info make docs             - generate info manuals)
 	$(info make info             - generate info manuals)
+	$(info make html             - generate html manual files)
+	$(info make html-dir         - generate html manual directories)
+	$(info make pdf              - generate pdf manuals)
 	$(info )
 	$(info Install)
 	$(info =======)
@@ -42,16 +47,23 @@ help:
 	$(info Release Managment)
 	$(info =================)
 	$(info )
-	$(info make texi             - regenerate texi from org)
-	$(info make genstats         - regenerate statistics)
+	$(info make texi             - regenerate texi manuals)
+	$(info make stats            - regenerate statistics)
 	$(info make authors          - regenerate AUTHORS.md)
+	$(info make preview-stats    - preview statistics)
+	$(info make publish-stats    - publish statistics)
+	$(info make preview-snapshot - preview snapshot manuals)
+	$(info make publish-snapshot - publish snapshot manuals)
+	$(info make preview-release  - preview release manuals)
+	$(info make publish-release  - publish release manuals)
 	$(info make dist             - create tarballs)
 	$(info make bump-versions    - bump versions for release)
 	$(info make bump-snapshots   - bump versions after release)
 	@printf "\n"
 
+# Build ##############################################################
+
 lisp:
-	@$(RM) $(ELCS) $(ELGS) # temporary cleanup kludge
 	@$(MAKE) -C lisp lisp
 
 docs:
@@ -60,8 +72,16 @@ docs:
 info:
 	@$(MAKE) -C Documentation info
 
-texi:
-	@$(MAKE) -C Documentation texi
+html:
+	@$(MAKE) -C Documentation html
+
+html-dir:
+	@$(MAKE) -C Documentation html-dir
+
+pdf:
+	@$(MAKE) -C Documentation pdf
+
+# Install ############################################################
 
 install: install-lisp install-docs
 
@@ -73,6 +93,8 @@ install-docs: docs
 
 install-info: info
 	@$(MAKE) -C Documentation install-info
+
+# Test ###############################################################
 
 test:
 	@$(BATCH) --eval "(progn\
@@ -90,6 +112,8 @@ emacs-Q: clean-lisp
 	(require 'magit)\
 	(global-set-key \"\\C-xg\" 'magit-status))"
 
+# Clean
+
 clean: clean-lisp clean-docs clean-archives
 	@printf "Cleaning...\n"
 	@$(RM) $(ELCS) $(ELGS) # temporary cleanup kludge
@@ -106,14 +130,37 @@ clean-archives:
 	@$(RM) git-commit-*.el *.tar.gz *.tar
 	@$(RMDIR) magit-$(VERSION)
 
-# Release management
+# Release management #################################################
 
-genstats:
-	@printf "Generating stats\n"
-	@gitstats -c style=/css/stats.css -c max_authors=200 . $(statsdir)
+texi-snapshot:
+	@$(MAKE) VERSION=$(SNAPSHOT) -C Documentation texi
+
+texi:
+	@$(MAKE) -C Documentation texi
+
+stats:
+	@$(MAKE) -C Documentation stats
 
 authors:
 	@$(MAKE) -C Documentation authors
+
+preview-stats:
+	@$(MAKE) -C Documentation preview-stats
+
+publish-stats:
+	@$(MAKE) -C Documentation publish-stats
+
+preview-snapshot: texi-snapshot
+	@$(MAKE) -C Documentation preview-snapshot
+
+publish-snapshot: texi-snapshot
+	@$(MAKE) -C Documentation publish-snapshot
+
+preview-release: texi
+	@$(MAKE) -C Documentation preview-release
+
+publish-release: texi
+	@$(MAKE) -C Documentation publish-release
 
 dist: magit-$(VERSION).tar.gz
 
@@ -135,6 +182,26 @@ magit-$(VERSION).tar.gz: lisp info
 	@$(TAR) cz --mtime=./magit-$(VERSION) -f magit-$(VERSION).tar.gz magit-$(VERSION)
 	@$(RMDIR) magit-$(VERSION)
 
+bump-versions: bump-versions-1 texi
+bump-versions-1:
+	@$(BATCH) --eval "(progn\
+        (setq async-version       \"$(ASYNC_VERSION)\")\
+        (setq dash-version        \"$(DASH_VERSION)\")\
+        (setq with-editor-version \"$(WITH_EDITOR_VERSION)\")\
+        (setq git-commit-version  \"$(GIT_COMMIT_VERSION)\")\
+        (setq magit-popup-version \"$(MAGIT_POPUP_VERSION)\")\
+        $$set_package_requires)"
+
+bump-snapshots:
+	@$(BATCH) --eval "(progn\
+        (setq async-version       \"$(ASYNC_MELPA_SNAPSHOT)\")\
+        (setq dash-version        \"$(DASH_MELPA_SNAPSHOT)\")\
+        (setq with-editor-version \"$(WITH_EDITOR_MELPA_SNAPSHOT)\")\
+        (setq git-commit-version  \"$(GIT_COMMIT_MELPA_SNAPSHOT)\")\
+        (setq magit-popup-version \"$(MAGIT_POPUP_MELPA_SNAPSHOT)\")\
+        $$set_package_requires)"
+	git commit -a -m "reset Package-Requires for Melpa"
+
 define set_package_requires
 (require 'dash)
 (dolist (lib (list "git-commit" "magit-popup" "magit"))
@@ -152,37 +219,3 @@ define set_package_requires
       (save-buffer))))
 endef
 export set_package_requires
-
-define set_manual_version
-(let ((version (split-string "$(MAGIT_VERSION)" "\\.")))
-  (setq version (concat (car version) "." (cadr version)))
-  (dolist (file (list "magit-popup" "magit"))
-    (with-current-buffer (find-file-noselect (format "Documentation/%s.org" file))
-      (goto-char (point-min))
-      (re-search-forward "^#\\+SUBTITLE: for version ")
-      (delete-region (point) (line-end-position))
-      (insert version)
-      (save-buffer))))
-endef
-export set_manual_version
-
-bump-versions: bump-versions-1 texi
-bump-versions-1:
-	@$(BATCH) --eval "(progn\
-        (setq async-version \"$(ASYNC_VERSION)\")\
-        (setq dash-version \"$(DASH_VERSION)\")\
-        (setq with-editor-version \"$(WITH_EDITOR_VERSION)\")\
-        (setq git-commit-version \"$(GIT_COMMIT_VERSION)\")\
-        (setq magit-popup-version \"$(MAGIT_POPUP_VERSION)\")\
-        $$set_package_requires\
-        $$set_manual_version)"
-
-bump-snapshots:
-	@$(BATCH) --eval "(progn\
-        (setq async-version \"$(ASYNC_MELPA_SNAPSHOT)\")\
-        (setq dash-version \"$(DASH_MELPA_SNAPSHOT)\")\
-        (setq with-editor-version \"$(WITH_EDITOR_MELPA_SNAPSHOT)\")\
-        (setq git-commit-version \"$(GIT_COMMIT_MELPA_SNAPSHOT)\")\
-        (setq magit-popup-version \"$(MAGIT_POPUP_MELPA_SNAPSHOT)\")\
-        $$set_package_requires)"
-	git commit -a -m "reset Package-Requires for Melpa"
